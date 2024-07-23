@@ -4,7 +4,6 @@ import time
 import threading
 from pynput import keyboard
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLineEdit, QLabel, QFormLayout, QFrame
-from PyQt5.QtGui import QFont
 from PyQt5.QtCore import Qt
 
 class MyApp(QWidget):
@@ -18,13 +17,14 @@ class MyApp(QWidget):
         self.additional_key = None
         self.num_lock_state = None
         self.num_loops = None
+        self.delay = None
 
         self.listener = keyboard.Listener(on_press=self.on_key_press)
         self.listener.start()
 
     def initUI(self):
         self.setWindowTitle('AutoCrafter')
-        self.setGeometry(300, 300, 550, 300)
+        self.setGeometry(300, 300, 550, 350)  # Increased height for additional label
         self.setStyleSheet("""
             QWidget {
                 background-color: #2e2e2e;  /* Dark background */
@@ -66,6 +66,9 @@ class MyApp(QWidget):
             }
         """)
 
+        # Set window to always stay on top
+        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+
         form_layout = QFormLayout()
         form_layout.setLabelAlignment(Qt.AlignRight)
         form_layout.setSpacing(10)
@@ -91,7 +94,7 @@ class MyApp(QWidget):
 
         self.delay_input = QLineEdit(self)
         self.delay_input.setPlaceholderText('Enter delay in seconds')
-        form_layout.addRow(QLabel('Delay:'), self.delay_input)
+        form_layout.addRow(QLabel('Delay (sec):'), self.delay_input)
 
         self.additional_key_input = QLineEdit(self)
         self.additional_key_input.setPlaceholderText('Enter key for macro')
@@ -101,9 +104,12 @@ class MyApp(QWidget):
         self.loops_input.setPlaceholderText('Enter how many items to craft. If left empty it will run until stopped.')
         form_layout.addRow(QLabel('Items:'), self.loops_input)
 
+        self.remaining_items_label = QLabel("Remaining items: Unknown", self)
+        form_layout.addRow(self.remaining_items_label)
+
         self.stop_btn = QPushButton('Stop', self)
         self.stop_btn.setObjectName('stop_btn')
-        self.stop_btn.clicked.connect(self.stopAutomation)
+        self.stop_btn.clicked.connect(self.stopApp)
         form_layout.addRow(self.stop_btn)
 
         self.quit_btn = QPushButton('Quit', self)
@@ -135,19 +141,18 @@ class MyApp(QWidget):
         else:
             subprocess.call(["xset", "led", "named", "Num Lock", "off"])
 
-    def startAutomation(self):
+    def startApp(self):
         if self.running:
-            print("Automation already running.")
+            print("App already running.")
             return
 
+        # Read and validate inputs
         try:
             self.delay = int(self.delay_input.text())
-        except ValueError:
-            print("Invalid delay value. Please enter an integer.")
-            return
-
-        if self.delay <= 0:
-            print("Delay must be a positive integer.")
+            if self.delay <= 0:
+                raise ValueError("Delay must be a positive integer.")
+        except ValueError as e:
+            print(f"Invalid delay value: {e}")
             return
 
         self.additional_key = self.additional_key_input.text().strip()
@@ -168,55 +173,77 @@ class MyApp(QWidget):
         self.focusWindow(self.window_id)
         self.exit_event.clear()
         self.running = True
-        self.worker_thread = threading.Thread(target=self.runAutomation)
-        self.worker_thread.start()
-        print("Automation started.")
 
-    def runAutomation(self):
+        # Start the app thread
+        self.worker_thread = threading.Thread(target=self.runApp)
+        self.worker_thread.start()
+
+        print("App started.")
+
+    def runApp(self):
         loops = 0
+        remaining_items = self.num_loops
+
         while not self.exit_event.is_set():
             print(f"Running loop {loops + 1}")
+            self.focusWindow(self.window_id)
             self.sendKeystrokes(self.window_id)
-            if self.num_loops is not None and loops >= self.num_loops:
+            self.focusAppWindow()
+
+            # Update the remaining items label
+            if remaining_items is not None:
+                remaining_items -= 1
+                self.remaining_items_label.setText(f"Remaining items: {remaining_items}")
+
+            if remaining_items is not None and remaining_items <= 0:
                 print("Number of loops reached.")
                 break
+
             if self.exit_event.wait(timeout=self.delay):
                 break
+
             loops += 1
 
         if self.num_lock_state is not None:
             self.setNumLockState(self.num_lock_state)
-        print("Automation stopped.")
+        print("App stopped.")
 
     def focusWindow(self, window_id):
         subprocess.call(["xdotool", "windowactivate", "--sync", window_id])
         time.sleep(0.1)
 
+    def focusAppWindow(self):
+        self.raise_()  # Bring the PyQt5 window to the front
+        self.activateWindow()  # Make sure it gains focus
+        self.raise_()  # Bring the PyQt5 window to the front again
+        self.activateWindow()  # Make sure it gains focus again
+
     def sendKeystrokes(self, window_id):
-        keystrokes = ['KP_4', 'KP_0', 'KP_0', 'KP_0', 'KP_0', 'KP_0']
+        keystrokes = ['KP_0', 'KP_0', 'KP_0', 'KP_0']
         for key in keystrokes:
             if self.exit_event.is_set():
                 return
             print(f"Sending key: {key}")
             cmd = ["xdotool", "key", "--window", window_id, key]
             subprocess.call(cmd)
-            time.sleep(1)
+            time.sleep(0.5)
 
         if self.additional_key and not self.exit_event.is_set():
             print(f"Sending additional key: {self.additional_key}")
             cmd = ["xdotool", "key", "--window", window_id, self.additional_key]
             subprocess.call(cmd)
 
-    def stopAutomation(self):
+    def stopApp(self):
         if self.running:
-            print("Stopping automation.")
+            print("Stopping app.")
             self.exit_event.set()
             if self.worker_thread is not None:
                 self.worker_thread.join()
+            self.running = False  # Explicitly set running to False after stopping
 
     def closeApp(self):
         print("Quitting application.")
-        self.stopAutomation()
+        self.stopApp()
         self.listener.stop()
         QApplication.quit()
 
@@ -225,9 +252,9 @@ class MyApp(QWidget):
             if key == keyboard.Key.esc:
                 self.closeApp()
             elif key == keyboard.Key.f11:
-                self.startAutomation()
+                self.startApp()
             elif key == keyboard.Key.f12:
-                self.stopAutomation()
+                self.stopApp()
         except Exception as e:
             print(f"Error handling key press: {e}")
 
