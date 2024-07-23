@@ -13,13 +13,12 @@ class MyApp(QWidget):
         self.initUI()
         self.worker_thread = None
         self.running = False
-        self.exit_event = threading.Event()  # Use an event for signaling exit
+        self.exit_event = threading.Event()
         self.window_id = None
         self.additional_key = None
-        self.num_lock_state = None  # To store Num Lock state
-        self.num_loops = None  # For number of loops
+        self.num_lock_state = None
+        self.num_loops = None
 
-        # Start listener for global hotkeys
         self.listener = keyboard.Listener(on_press=self.on_key_press)
         self.listener.start()
 
@@ -67,18 +66,15 @@ class MyApp(QWidget):
             }
         """)
 
-        # Create layout
         form_layout = QFormLayout()
         form_layout.setLabelAlignment(Qt.AlignRight)
         form_layout.setSpacing(10)
         form_layout.setContentsMargins(20, 20, 20, 20)
 
-        # Create a frame for the help text
         self.help_text_frame = QFrame(self)
         self.help_text_frame.setObjectName("help_text_frame")
         self.help_text_frame.setLayout(QVBoxLayout())
 
-        # Create and style help text
         self.help_text = QLabel(
             '''
             <b>AutoCrafter Help:</b><br>
@@ -93,39 +89,33 @@ class MyApp(QWidget):
         self.help_text_frame.layout().addWidget(self.help_text)
         form_layout.addRow(self.help_text_frame)
 
-        # Create input box for delay
         self.delay_input = QLineEdit(self)
         self.delay_input.setPlaceholderText('Enter delay in seconds')
         form_layout.addRow(QLabel('Delay:'), self.delay_input)
 
-        # Create input box for additional keypress
         self.additional_key_input = QLineEdit(self)
         self.additional_key_input.setPlaceholderText('Enter key for macro')
         form_layout.addRow(QLabel('Macro Key:'), self.additional_key_input)
 
-        # Create input box for number of loops
         self.loops_input = QLineEdit(self)
         self.loops_input.setPlaceholderText('Enter how many items to craft. If left empty it will run until stopped.')
         form_layout.addRow(QLabel('Items:'), self.loops_input)
 
-        # Create Stop Button
         self.stop_btn = QPushButton('Stop', self)
         self.stop_btn.setObjectName('stop_btn')
         self.stop_btn.clicked.connect(self.stopAutomation)
         form_layout.addRow(self.stop_btn)
 
-        # Create Quit Button
         self.quit_btn = QPushButton('Quit', self)
         self.quit_btn.clicked.connect(self.closeApp)
         form_layout.addRow(self.quit_btn)
 
-        # Set layout
         self.setLayout(form_layout)
 
     def getWindowId(self, window_name):
         try:
             result = subprocess.check_output(["xdotool", "search", "--name", window_name]).decode().strip()
-            return result.split()[0]  # Just take the first window ID if multiple are found
+            return result.split()[0]
         except subprocess.CalledProcessError:
             print("Error: Window not found.")
             return None
@@ -140,7 +130,6 @@ class MyApp(QWidget):
             return None
 
     def setNumLockState(self, state):
-        # Turn Num Lock on or off
         if state:
             subprocess.call(["xset", "led", "named", "Num Lock"])
         else:
@@ -161,26 +150,23 @@ class MyApp(QWidget):
             print("Delay must be a positive integer.")
             return
 
-        # Get the additional key from input
         self.additional_key = self.additional_key_input.text().strip()
         if not self.additional_key:
             print("Additional key cannot be empty.")
             return
 
-        # Get the number of loops from input
         try:
             self.num_loops = int(self.loops_input.text())
         except ValueError:
-            self.num_loops = None  # If the input is empty or invalid, run indefinitely
+            self.num_loops = None
 
-        # Get the window ID and focus it only once
-        self.window_id = self.getWindowId("FINAL FANTASY XIV")  # Replace with your game window title
+        self.window_id = self.getWindowId("FINAL FANTASY XIV")
         if self.window_id is None:
             return
 
-        self.num_lock_state = self.getNumLockState()  # Save current Num Lock state
-        self.focusWindow(self.window_id)  # Focus the window only once
-        self.exit_event.clear()  # Reset the exit event
+        self.num_lock_state = self.getNumLockState()
+        self.focusWindow(self.window_id)
+        self.exit_event.clear()
         self.running = True
         self.worker_thread = threading.Thread(target=self.runAutomation)
         self.worker_thread.start()
@@ -198,15 +184,12 @@ class MyApp(QWidget):
                 break
             loops += 1
 
-        # Restore the Num Lock state after automation stops
         if self.num_lock_state is not None:
             self.setNumLockState(self.num_lock_state)
         print("Automation stopped.")
 
     def focusWindow(self, window_id):
-        # Activate the window
         subprocess.call(["xdotool", "windowactivate", "--sync", window_id])
-        # Ensure focus is properly set
         time.sleep(0.1)
 
     def sendKeystrokes(self, window_id):
@@ -217,9 +200,8 @@ class MyApp(QWidget):
             print(f"Sending key: {key}")
             cmd = ["xdotool", "key", "--window", window_id, key]
             subprocess.call(cmd)
-            time.sleep(1)  # Sleep between individual keystrokes
+            time.sleep(1)
 
-        # Send the additional key after default sequence
         if self.additional_key and not self.exit_event.is_set():
             print(f"Sending additional key: {self.additional_key}")
             cmd = ["xdotool", "key", "--window", window_id, self.additional_key]
@@ -228,23 +210,23 @@ class MyApp(QWidget):
     def stopAutomation(self):
         if self.running:
             print("Stopping automation.")
-            self.exit_event.set()  # Signal the thread to stop
+            self.exit_event.set()
             if self.worker_thread is not None:
-                self.worker_thread.join()  # Ensure the thread has stopped
+                self.worker_thread.join()
 
     def closeApp(self):
         print("Quitting application.")
         self.stopAutomation()
-        self.listener.stop()  # Stop listening for hotkeys
-        QApplication.quit()  # Quit the application
+        self.listener.stop()
+        QApplication.quit()
 
     def on_key_press(self, key):
         try:
             if key == keyboard.Key.esc:
                 self.closeApp()
-            elif key == keyboard.Key.f11:  # Example keybind for starting automation
+            elif key == keyboard.Key.f11:
                 self.startAutomation()
-            elif key == keyboard.Key.f12:  # Example keybind for stopping automation
+            elif key == keyboard.Key.f12:
                 self.stopAutomation()
         except Exception as e:
             print(f"Error handling key press: {e}")
